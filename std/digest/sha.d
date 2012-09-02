@@ -24,7 +24,7 @@ $(TR $(TDNW Helpers) $(TD $(MYREF sha1Of))
  * module.
  *
  * License:   <a href="http://www.boost.org/LICENSE_1_0.txt">Boost License 1.0</a>
- * 
+ *
  * CTFE:
  * Digests do not work in CTFE
  *
@@ -125,9 +125,27 @@ unittest
     hash = sha.finish();
 }
 
+version(SHA1_WITHOUT_SSSE3)
+{
+}
+else
+{
+    version(D_InlineAsm_X86)
+    {
+        version = USE_SSSE3;
+    }
+    else version(D_InlineAsm_X86_64)
+    {
+        version = USE_SSSE3;
+    }
+}
+
 import std.ascii : hexDigits;
 import std.exception : assumeUnique;
 import core.bitop : bswap;
+version(USE_SSSE3) import core.cpuid : hasSSSE3Support = ssse3;
+version(USE_SSSE3) import std.internal.digest.sha_SSSE3 : transformSSSE3;
+
 
 version(unittest)
 {
@@ -212,7 +230,26 @@ private nothrow pure uint rotateLeft(uint x, uint n)
  */
 struct SHA1
 {
-    alias transformX86 transform;
+    version(USE_SSSE3)
+    {
+        private static immutable nothrow pure void function(uint[5]* state, const(ubyte[64])* block) transform;
+
+        static this()
+        {
+            if (hasSSSE3Support())
+            {
+                transform = &transformSSSE3;
+            }
+            else
+            {
+                transform = &transformX86;
+            }
+        }
+    }
+    else
+    {
+        alias transformX86 transform;
+    }
 
     private:
         uint state[5] =                                   /* state (ABCDE) */
@@ -386,13 +423,13 @@ struct SHA1
     public:
         /**
          * SHA1 initialization. Begins a SHA1 operation.
-         * 
+         *
          * Note:
          * For this SHA1 Digest implementation calling start after default construction
          * is not necessary. Calling start is only necessary to reset the Digest.
-         * 
+         *
          * Generic code which deals with different Digest types should always call start though.
-         * 
+         *
          * Examples:
          * --------
          * SHA1 digest;
@@ -592,7 +629,7 @@ unittest
     onemilliona[] = 'a';
     digest = sha1Of(onemilliona);
     assert(digest == cast(ubyte[])x"34aa973cd4c4daa4f61eeb2bdbad27316534016f");
-    
+
     auto oneMillionRange = repeat!ubyte(cast(ubyte)'a', 1000000);
     digest = sha1Of(oneMillionRange);
     assert(digest == cast(ubyte[])x"34aa973cd4c4daa4f61eeb2bdbad27316534016f");
